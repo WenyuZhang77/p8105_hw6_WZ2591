@@ -4,3 +4,270 @@ author: "Wenyu Zhang"
 date: "12/1/2021"
 output: github_document
 ---
+
+```{r}
+library(tidyverse)
+library(rvest)
+library(modelr)
+library(mgcv)
+
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_color_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+# Problem 1
+## Load and clean the data for regression analysis (i.e. convert numeric to factor where appropriate, check for missing data, etc.).
+
+```{r}
+birthweight_df = 
+  read_csv("data/birthweight.csv") %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    babysex = factor(babysex, 
+                     levels = c("1", 
+                                "2")),
+    frace = factor(frace, 
+                   levels = c("1", 
+                              "2", 
+                              "3", 
+                              "4", 
+                              "8", 
+                              "9")),
+    malform = factor(malform, 
+                     levels = c("0", 
+                                "1")),
+    mrace = factor(mrace, 
+                   levels = c("1", 
+                              "2", 
+                              "3", 
+                              "4", 
+                              "8"))
+  )
+
+sum(is.na(birthweight_df))
+```
+
+There is no NA data in this dataset
+
+## Propose a regression model for birthweight
+
+```{r}
+model_fit = lm(bwt ~ babysex + bhead + blength + gaweeks, data = birthweight_df)
+
+model_fit %>% 
+  broom::tidy() %>% 
+  knitr::kable(digits = 3)
+
+summary(model_fit)
+```
+
+```{r}
+modelr::add_residuals(birthweight_df, model_fit)
+modelr::add_predictions(birthweight_df, model_fit)
+```
+
+```{r}
+birthweight_df %>% 
+  add_predictions(model_fit) %>% 
+  add_residuals(model_fit) %>% 
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point(alpha = 0.5, size = 0.5) +
+  labs(x = "Predicted values", 
+       y = "Residual",
+       title = "plot of model residuals against fitted values")
+
+```
+
+## Describe your modeling process
+
+1. the predictors I choose are `babysex`, `bhead`, `blength` and `gaweeks`. 
+
+2. Then I build a linear regression model for baby’s birth weight with the influences of baby’s sex, baby’s head circumference at birth, baby’s length at birth and gestational age in weeks.
+
+3. According to the plot, most of the points are between the area from 2000 to 4000.
+
+## Compare your model to two others:
+### One using length at birth and gestational age as predictors (main effects only)
+
+```{r}
+model_fit2 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
+
+model_fit2 %>% 
+  broom::tidy() %>% 
+  knitr::kable(digits = 3)
+
+summary(model_fit2)
+```
+
+### One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
+
+```{r}
+model_fit3 = lm(bwt ~ bhead * blength * babysex, data = birthweight_df)
+
+model_fit3 %>% 
+  broom::tidy() %>% 
+  knitr::kable(digits = 3)
+
+summary(model_fit3)
+```
+
+## Make this comparison in terms of the cross-validated prediction error; use crossv_mc and functions in purrr as appropriate.
+
+```{r}
+cv_df = 
+    crossv_mc(birthweight_df, 100) %>% 
+    mutate(
+      train = map(train, as_tibble),
+      test = map(test, as_tibble)
+      )
+```
+
+```{r, warning=FALSE}
+cv_df =
+  cv_df %>% 
+  mutate(
+    model_fit = map(train, ~lm(bwt ~ babysex + bhead + blength + gaweeks, data = .x)),
+    model_fit1 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model_fit2 = map(train, ~gam(bwt ~ bhead * blength * babysex, data = .x))
+    ) %>% 
+  mutate(
+    rmse_model_fit = map2_dbl(model_fit, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_model_fit1 = map2_dbl(model_fit1, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_model_fit2 = map2_dbl(model_fit2, .y = test, ~rmse(model = .x, data = .y))
+  )
+```
+
+```{r}
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin()
+```
+`model_fit` and `model_fit2` have the lowest rmse, so they are more accurate.
+ 
+# Problem 2
+
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+## Distribution of $log(\hat{\beta}_0 \ast \hat{\beta}_1)$
+
+```{r}
+log_df = 
+  weather_df %>% 
+  modelr::bootstrap(n = 5000) %>% 
+  mutate(
+    models = map(strap, ~ lm(tmax ~ tmin, data = .x)),
+    results = map(models, broom::tidy)) %>% 
+  select(.id, results) %>% 
+  unnest(results) %>% 
+  mutate(term = 
+           case_when(
+             term == "(Intercept)" ~ "beta0",
+             term == "tmin" ~ "beta1"
+             )) 
+```
+
+```{r}
+log_clean_df = 
+  log_df %>% 
+  select(.id, term, estimate) %>% 
+  pivot_wider(
+    names_from = term,
+    values_from = estimate) %>%
+  mutate(log_beta = log(beta0 * beta1))
+```
+
+```{r}
+log_clean_plot = 
+  log_clean_df %>%
+  ggplot(aes(x = log_beta)) + 
+  geom_density() +
+  labs(x = "log estimate",
+       y = "Density",
+       title = "distribution of log estimatie")  
+
+log_clean_plot
+```
+
+## 95% confidence interval for $log(\hat{\beta}_0 \ast \hat{\beta}_1)$
+
+```{r}
+log_clean_df %>% 
+  summarize(
+    ci_lower = quantile(log_beta, 0.025), 
+    ci_upper = quantile(log_beta, 0.975)) %>% 
+  knitr::kable(digits = 3)
+```
+
+## Distribution of $\hat{r}^2$
+
+```{r}
+rsquared_df = 
+  weather_df %>% 
+  modelr::bootstrap(n = 5000) %>% 
+  mutate(
+    models = map(strap, ~ lm(tmax ~ tmin, data = .x)),
+    results_glance = map(models, broom::glance)) %>% 
+  select(.id, results_glance) %>% 
+  unnest(results_glance)
+```
+
+```{r}
+rsquared_clean_df = 
+  rsquared_df %>% 
+  select(.id, r.squared)
+```
+
+```{r}
+rsquared_clean_plot = 
+  rsquared_clean_df %>%
+  ggplot(aes(x = r.squared)) + 
+  geom_density() +
+  labs(x = "r squared",
+       y = "density",
+       title = "distribution of r squared estimatie")  
+
+rsquared_clean_plot
+```
+
+## 95% confidence interval for $\hat{r}^2$
+
+```{r}
+rsquared_clean_df %>% 
+  summarize(
+    ci_lower = quantile(r.squared, 0.025), 
+    ci_upper = quantile(r.squared, 0.975)) %>% 
+  knitr::kable(digits = 3)
+```
+
