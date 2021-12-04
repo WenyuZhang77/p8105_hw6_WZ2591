@@ -162,7 +162,7 @@ cv_df %>%
   ggplot(aes(x = model, y = rmse)) + 
   geom_violin()
 ```
-`model_fit` and `model_fit2` have the lowest rmse, so they are more accurate.
+modelfit and modelfit 2 have the lowest rmse, so they are more accurate.
  
 # Problem 2
 
