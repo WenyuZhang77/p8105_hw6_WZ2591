@@ -139,13 +139,13 @@ cv_df =
   cv_df %>% 
   mutate(
     model_fit = map(train, ~lm(bwt ~ babysex + bhead + blength + gaweeks, data = .x)),
-    model_fit1 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
-    model_fit2 = map(train, ~gam(bwt ~ bhead * blength * babysex, data = .x))
+    model_fit2 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model_fit3 = map(train, ~lm(bwt ~ bhead * blength * babysex, data = .x))
     ) %>% 
   mutate(
     rmse_model_fit = map2_dbl(model_fit, .y = test, ~rmse(model = .x, data = .y)),
-    rmse_model_fit1 = map2_dbl(model_fit1, .y = test, ~rmse(model = .x, data = .y)),
-    rmse_model_fit2 = map2_dbl(model_fit2, .y = test, ~rmse(model = .x, data = .y))
+    rmse_model_fit2 = map2_dbl(model_fit2, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_model_fit3 = map2_dbl(model_fit3, .y = test, ~rmse(model = .x, data = .y))
   )
 ```
 
@@ -162,7 +162,7 @@ cv_df %>%
   ggplot(aes(x = model, y = rmse)) + 
   geom_violin()
 ```
-modelfit and modelfit 2 have the lowest rmse, so they are more accurate.
+modelfit and modelfit 3 have the lowest rmse, so they are more accurate.
  
 # Problem 2
 
